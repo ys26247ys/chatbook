@@ -12,7 +12,7 @@ import type { ActiveSelection } from "../../atoms/chatAtom";
 import type { SelectionRect } from "../../../shared/schemas/selection";
 import type { BookDetail } from "../../../shared/schemas/book";
 import { PdfPage } from "./PdfPage";
-import { PdfOutline } from "./PdfOutline";
+import { PdfSidePanel } from "./PdfSidePanel";
 import { PageStepper } from "./PageStepper";
 import { SelectionPopover } from "./SelectionPopover";
 import { SelectionActionBar } from "./SelectionActionBar";
@@ -308,6 +308,20 @@ export function PdfViewer({
       if (isNarrow) setOutlineOpen(false);
     },
     [isNarrow, setCurrentPage, setOutlineOpen],
+  );
+
+  /**
+   * Following a search hit is following a citation: the same two writes, so the
+   * mark on the page is put there by the machinery that already does it
+   * (`CitationLink`, and the viewer's own `citedPassage` effect below).
+   */
+  const handleSearchJump = useCallback(
+    (pageNumber: number, text: string) => {
+      setCurrentPage(pageNumber);
+      setCitedPassage({ pageNumber, text });
+      if (isNarrow) setOutlineOpen(false);
+    },
+    [isNarrow, setCurrentPage, setCitedPassage, setOutlineOpen],
   );
 
   const turnPage = useCallback(
@@ -777,20 +791,24 @@ export function PdfViewer({
                   className="absolute inset-0 z-20 bg-black/40"
                 />
                 <div className="absolute inset-y-0 left-0 z-30 flex shadow-xl">
-                  <PdfOutline
+                  <PdfSidePanel
+                    pdfId={pdfId}
                     outline={outline}
-                    error={outlineError}
+                    outlineError={outlineError}
                     currentPage={currentPage}
                     onJump={handleOutlineJump}
+                    onJumpToHit={handleSearchJump}
                   />
                 </div>
               </>
             ) : (
-              <PdfOutline
+              <PdfSidePanel
+                pdfId={pdfId}
                 outline={outline}
-                error={outlineError}
+                outlineError={outlineError}
                 currentPage={currentPage}
                 onJump={handleOutlineJump}
+                onJumpToHit={handleSearchJump}
               />
             ))}
 

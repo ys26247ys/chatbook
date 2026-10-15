@@ -1560,6 +1560,56 @@ DOM 非依存の純粋関数として実装。`gg` や `C-c t` の2ストロー�
 守っているのは `src/front/pages/ShelfPage.test.tsx` の 3 本（読書中・未読・最終ページ）と
 `test/worker/pdf.test.ts` の `GET /api/pdfs` の「carries how far the reader got in each book」。
 
+#### 本文の検索
+
+**検索は 2 つある。混同しないこと。** 右の `HighlightListPanel` が読者の**マークした箇所と
+その会話**を絞り込み（`GET /pdf/:pdfId/search`、`useHighlightSearch`）、左の `PdfSidePanel` が
+**本そのもの**を探す（`GET /pdf/:pdfId/text-search`、`useTextSearch`）。前者は D1 の
+`selections` と `chat_messages` を、後者は `pdfs.full_text` を見る。パスを `search` と
+`text-search` で分けてあるのは、同じ `/pdf/:pdfId/search` に 2 つ目を足すと先に定義された方が
+黙って勝つため（実際に一度踏んだ）。
+
+**本文はサーバで探す**。全文はアップロード時に 1 度だけ抽出されて D1 にあり、モデルに読ませる
+ために既にそこにある。ブラウザで探すなら本 1 冊ぶん（実書籍で 213KB）を 2 度目に落とすことに
+なるので、その必要がない。
+
+照合は `src/server/services/bookSearch.ts` の `searchBook` が行う純粋関数で、**3 つを畳む**:
+
+| 畳むもの                | なぜ                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| 空白                    | pdf.js が text item の間に挿むので、単語の途中に空白が入る（`findPageNumber` が剥がすのと同じ理由） |
+| 大文字小文字            | `AWS` を打つのは `aws` に当てないためではない                                                       |
+| 互換形（文字単位 NFKC） | 日本語の組版が使う全角ラテンに、読者が打つ半角が当たる                                              |
+
+**畳んだ位置から元の位置へ戻す対応表（`sources`）が要る**。スニペットは本の字面で出すもので、
+畳んだ文字列を見せるものではない。返す `matchStart` / `matchLength` も同じ理由——スニペットを
+クエリで検索し直しても当たらない（当たったのは畳んだ形）ので、**どこが当たったかはサーバが言う**。
+
+**ページごとに閉じて探す**ので、ページ区切りをまたぐ語句は当たらない。1 件のヒットは 1 つの
+ページを名指すものであり、またいで切ったスニペットは飛んだ先のページに無い字を引用してしまう。
+
+**`total` は本全体の件数、`hits` は `TEXT_SEARCH_HIT_LIMIT`（100）で止まる**。「の」で引いた
+読者に、一覧が 400 件中 100 件なのか 51 件中 50 件なのかを言わないと、信用できない一覧を
+信用させることになる。
+
+**打つたびには検索しない**（`submit` まで何も訊かない）。`useHighlightSearch` と同じ理由で、
+1 打ごとの往復は書きかけの日本語——IME の変換中——に答えることになる。Enter の判定は
+`isSubmitKey` を通す。
+
+**ヒットを選ぶのは引用リンクを辿るのと同じ**。`setCurrentPage` と `setCitedPassage` の 2 つを
+書くだけで、ページ上に印を置くのは既存の `citedPassage` の仕組み（`CitationLink` と
+`PdfViewer` の effect）がやる。**印を置く機構を新しく作らないこと。** 同じページに複数ヒットが
+あるときは最初の出現に付く——`locateQuoteInSpans` は何番目かを知らない。
+
+**左の列は `PdfSidePanel` が持つ**（幅・枠・検索箱）。`PdfOutline` は中身だけになったので、
+あの `nav` に `w-60` や `border-r` を戻さないこと（箱が二重になる）。検索中は目次の代わりに
+結果が出る。
+
+守っているのは `src/server/services/bookSearch.test.ts`（畳み方・ページ・スニペット・上限の
+14 本）、`src/front/components/PdfViewer/PdfSidePanel.test.tsx`（打っただけでは検索しない、
+結果からの飛び先、件数、失敗の 8 本）、`test/worker/pdf.test.ts` の
+`GET /api/pdf/:pdfId/text-search`（4 本）。
+
 ## テスト
 
 ランナーが3つあり、それぞれ守備範囲が違う:

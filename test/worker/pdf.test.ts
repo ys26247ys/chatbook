@@ -667,6 +667,70 @@ describe("GET /api/pdfs", () => {
   });
 });
 
+describe("GET /api/pdf/:pdfId/text-search", () => {
+  function searchIn(pdfId: string, query: string): Promise<Response> {
+    return apiFetch(
+      `https://example.com/api/pdf/${pdfId}/text-search?q=${encodeURIComponent(query)}`,
+    );
+  }
+
+  it("finds the pages a word sits on, with the book's own words around it", async () => {
+    const book = await uploadBook({
+      tag: "search-hits",
+      fileName: "searchable.pdf",
+      pages: ["まえがき", "Athena の性能特性について", "S3 の話", "Athena はもう一度出てくる"],
+    });
+
+    const response = await searchIn(book.id, "Athena");
+    expect(response.status).toBe(200);
+
+    const { hits, total } = (await response.json()) as {
+      hits: { pageNumber: number; snippet: string; text: string }[];
+      total: number;
+    };
+
+    expect(total).toBe(2);
+    expect(hits.map((h) => h.pageNumber)).toStrictEqual([2, 4]);
+    expect(hits[0].snippet).toContain("性能特性");
+    expect(hits[0].text).toBe("Athena");
+  });
+
+  it("answers with nothing for a word the book does not hold", async () => {
+    const book = await uploadBook({
+      tag: "search-miss",
+      fileName: "no-match.pdf",
+      pages: ["まえがき", "おわりに"],
+    });
+
+    const response = await searchIn(book.id, "Kubernetes");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toStrictEqual({ hits: [], total: 0 });
+  });
+
+  // An empty box is not a search: the client does not ask, and a request that
+  // does is a bug worth hearing about rather than a whole book of hits.
+  it("refuses a query with nothing in it", async () => {
+    const book = await uploadBook({ tag: "search-empty", fileName: "empty-query.pdf" });
+
+    const response = await apiFetch(`https://example.com/api/pdf/${book.id}/text-search?q=`);
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      "VALIDATION_ERROR",
+    );
+  });
+
+  it("says so when the book itself is not there", async () => {
+    const response = await searchIn("no-such-book", "Athena");
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toStrictEqual({
+      error: { code: "PDF_NOT_FOUND", message: "PDF not found" },
+    });
+  });
+});
+
 describe("PDF thumbnails", () => {
   it("serves the thumbnail uploaded alongside the PDF", async () => {
     const book = await uploadBook({
