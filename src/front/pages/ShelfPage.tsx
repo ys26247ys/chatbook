@@ -59,6 +59,20 @@ function bookTitle(fileName: string): string {
   return fileName.replace(/\.pdf$/i, "");
 }
 
+/**
+ * How far a book got, or `null` for one nobody has opened.
+ *
+ * The page is clamped because a book re-uploaded shorter than it was keeps the
+ * page it was left on, and a bar past its own end reads as a bug rather than as
+ * the stale number it is.
+ */
+function readingProgress(book: BookSummary): { page: number; percent: number } | null {
+  if (book.lastReadPage === null) return null;
+
+  const page = Math.min(book.lastReadPage, book.pageCount);
+  return { page, percent: Math.round((page / book.pageCount) * 100) };
+}
+
 function BookCard({
   book,
   onOpen,
@@ -71,6 +85,7 @@ function BookCard({
   const [coverFailed, setCoverFailed] = useState(false);
   const showCover = book.hasThumbnail && !coverFailed;
   const title = bookTitle(book.fileName);
+  const progress = readingProgress(book);
 
   return (
     <div className="relative group/card">
@@ -98,8 +113,25 @@ function BookCard({
           )}
         </div>
         <p className="mt-2 line-clamp-2 text-sm font-medium text-gray-800">{title}</p>
-        <p className="text-xs text-gray-500">{book.pageCount} ページ</p>
+        <p className="text-xs text-gray-500">
+          {progress ? `${progress.page} / ${book.pageCount} ページ` : `${book.pageCount} ページ`}
+        </p>
       </button>
+
+      {/* Outside the button on purpose: a button is a leaf to much assistive
+          technology, and a progressbar buried in one is not reliably read. */}
+      {progress && (
+        <div
+          role="progressbar"
+          aria-label={`${title} の進捗`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress.percent}
+          className="mt-1 h-1 w-full overflow-hidden rounded-full bg-gray-200"
+        >
+          <div className="h-full bg-blue-500" style={{ width: `${progress.percent}%` }} />
+        </div>
+      )}
 
       {/* Kept out of the way until the pointer arrives — but only where there
           is a pointer to arrive. A finger never hovers, so on a touch-sized

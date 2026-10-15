@@ -635,8 +635,35 @@ describe("GET /api/pdfs", () => {
       pageCount: 1,
       updatedAt: expect.any(String),
       hasThumbnail: true,
+      lastReadPage: null,
     });
     expect(uncovered?.hasThumbnail).toBe(false);
+  });
+
+  // The shelf is where a reader picks the book to carry on with, so it needs
+  // the place the book already remembers — without reading `full_text` to get
+  // it, which is why this list names its columns one by one.
+  it("carries how far the reader got in each book", async () => {
+    const started = await uploadBook({
+      tag: "shelf-progress-started",
+      fileName: "started.pdf",
+      pages: ["one", "two", "three", "four"],
+    });
+    const untouched = await uploadBook({
+      tag: "shelf-progress-untouched",
+      fileName: "untouched.pdf",
+      pages: ["one", "two"],
+    });
+
+    await putReadingState(started.id, { page: 3, selectionId: null, bookChat: false });
+
+    const response = await apiFetch("https://example.com/api/pdfs");
+    const { books } = (await response.json()) as {
+      books: { id: string; lastReadPage: number | null }[];
+    };
+
+    expect(books.find((b) => b.id === started.id)?.lastReadPage).toBe(3);
+    expect(books.find((b) => b.id === untouched.id)?.lastReadPage).toBeNull();
   });
 });
 

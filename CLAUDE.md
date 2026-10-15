@@ -1507,9 +1507,11 @@ is opened from the shelf」「an old link naming the panels no longer has a say 
 **マイグレーションを当ててから動かす**。`readPdf` / `storePdf` は drizzle が `pdfs` の全列を
 明示列挙するので、`0002_add_reading_state.sql` / `0003_add_reading_state_chat_panel.sql` /
 `0004_add_outline.sql` / `0006_add_book_chat_reading_state.sql` が未適用の D1 に新しいコードを
-載せると本を開く経路ごと 500 になる（列を絞って読む本棚一覧だけは生き残る。
-`saveReadingState` が落ちるのは、その列を実際に送ったときだけ——開閉と `bookChat` は省略なら
-`set` にも現れない。チャットは `outline` 列を select するので `0004` 未適用では 500）。
+載せると本を開く経路ごと 500 になる（`saveReadingState` が落ちるのは、その列を実際に
+送ったときだけ——開閉と `bookChat` は省略なら `set` にも現れない。チャットは `outline` 列を
+select するので `0004` 未適用では 500）。**本棚一覧も `0002` が要る**——進捗を出すために
+`last_read_page` を select するようになったので、列を絞って読んでいても逃げ切れない
+（下記「本棚は進捗を出す」）。
 ローカルは `pnpm run db:migrate:local`、リモートは
 `vp build` → `wrangler d1 migrations apply chatbook-db --remote` → `pnpm run deploy` の順。
 **列の追加は旧コードに無害なので、先に当てるのが常に安全——ただし `0005_book_chat.sql` だけは
@@ -1532,6 +1534,31 @@ DOM 非依存の純粋関数として実装。`gg` や `C-c t` の2ストロー�
 `KEYBINDING_HELP` をその下に continue する（方向キーを 3 モード分書き写さないため）。
 **拡大中でもページを送る**——タップとスワイプは `ENLARGED_ABOVE` 超で送らないが、キーボードは
 `h` / `l` を含めてその規約の外にある（拡大中に動かしたいのは `↑` / `↓` が担う）。
+
+#### 本棚は進捗を出す
+
+読書位置は既に本ごとに保存されている（上記「読んでいた場所は本と一緒に運ぶ」）ので、**本棚は
+それを読んで出すだけ**で、進捗のための列も保存経路も持たない。出るのは `BookCard`
+（`src/front/pages/ShelfPage.tsx`）のタイトルの下——読書中は `115 / 193 ページ` と
+`role="progressbar"` のバー、未読は `193 ページ` だけでバーは出さない。
+
+**`lastReadPage` の `null` は「まだ開いていない」で、ページ 1 とは別物**。戻る場所が無い本に
+0% のバーを出すと、読み始めたのに進んでいない本と見分けが付かなくなる。`readShelf`
+（`src/server/services/pdfService.ts`）が列を 1 つ足して運び、`bookSummarySchema`
+（`src/shared/schemas/book.ts`）が `nullable` で受ける。
+
+**ページは `pageCount` で丸める**（`readingProgress`）。同じ本を短い版で上げ直しても
+読書位置は残る（`storePdf` が列を明示列挙して場所を保たせている）ので、本の終わりを越えた
+ページがそのまま残りうる。丸めないと 100% を超えたバーが出て、古い数字ではなくバグに見える。
+
+**バーはカードを開くボタンの外に置く**。ボタンは支援技術から葉として扱われることがあり、
+中に入れた `progressbar` が読まれる保証が無い。
+
+**`updatedAt` は動かないので本棚の並びは変わらない**（読書位置の保存は `updatedAt` に触らない。
+上記「読んでいた場所は本と一緒に運ぶ」）。読み進めただけの本が本棚の先頭へ来ることはない。
+
+守っているのは `src/front/pages/ShelfPage.test.tsx` の 3 本（読書中・未読・最終ページ）と
+`test/worker/pdf.test.ts` の `GET /api/pdfs` の「carries how far the reader got in each book」。
 
 ## テスト
 
