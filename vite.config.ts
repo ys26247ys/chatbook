@@ -22,6 +22,18 @@ export default defineConfig({
     !process.env.VITEST &&
       cloudflare(e2eStatePath ? { persistState: { path: e2eStatePath } } : undefined),
   ],
+  // Reading on an iPad means reaching this server through a name that has a
+  // real certificate: the session cookie is `Secure`, so a browser drops it on
+  // a plain-http origin and the reader never gets past the password box (see
+  // CLAUDE.md, "ログインとセッション"). A tailnet name put up by
+  // `tailscale serve` has one, and only devices on the tailnet resolve it.
+  //
+  // The leading dot allows any host under ts.net, so no one machine has to be
+  // named here. `true` is a different thing: it turns the DNS-rebinding guard
+  // off for every host, and this guard is the reason the option exists.
+  server: {
+    allowedHosts: [".ts.net"],
+  },
   fmt: {
     ignorePatterns: [AGENT_WORKTREES],
   },

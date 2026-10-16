@@ -17,6 +17,7 @@ function book(overrides: Partial<BookSummary> = {}): BookSummary {
     pageCount: 209,
     updatedAt: "2026-01-01T00:00:00Z",
     hasThumbnail: false,
+    lastReadPage: null,
     ...overrides,
   };
 }
@@ -107,6 +108,31 @@ describe("ShelfPage", () => {
       await screen.findByRole("button", { name: "Cloudflare Workers 入門 を開く" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rust 入門 を開く" })).toBeInTheDocument();
+  });
+
+  it("shows how far the reader got in a book they have started", async () => {
+    renderShelf({ loadBooks: async () => [book({ pageCount: 193, lastReadPage: 115 })] });
+
+    expect(await screen.findByText("115 / 193 ページ")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+  });
+
+  // A book nobody has opened has no place to come back to, which is not the
+  // same as being on page 1: the shelf says how long it is and nothing more.
+  it("shows only the length of a book nobody has opened", async () => {
+    renderShelf({ loadBooks: async () => [book({ pageCount: 193, lastReadPage: null })] });
+
+    expect(await screen.findByText("193 ページ")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  // The last page is where a finished book leaves the reader, so the bar fills
+  // rather than stopping one page short.
+  it("fills the bar for a book read to its last page", async () => {
+    renderShelf({ loadBooks: async () => [book({ pageCount: 48, lastReadPage: 48 })] });
+
+    expect(await screen.findByText("48 / 48 ページ")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
   });
 
   it("opens the reader for the book whose card was clicked", async () => {

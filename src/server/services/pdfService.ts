@@ -75,6 +75,7 @@ async function readShelf(db: D1Database, bucket: R2Bucket): Promise<BookSummary[
       pageCount: pdfs.pageCount,
       fileHash: pdfs.fileHash,
       updatedAt: pdfs.updatedAt,
+      lastReadPage: pdfs.lastReadPage,
     })
     .from(pdfs)
     .orderBy(desc(pdfs.updatedAt))

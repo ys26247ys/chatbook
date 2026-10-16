@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useSWRConfig } from "swr";
 import { SESSION_KEY, useSession } from "../hooks/useSession";
 import { resultFetcher } from "../lib/fetcher";
+import { forgetSessionExpiry } from "../lib/sessionExpiry";
 import { sessionSchema } from "../../shared/schemas/auth";
 
 /**
@@ -40,7 +41,17 @@ export function RequireSession({ children }: { children: ReactNode }) {
 
   // Signing in is told to the rest of the app by re-asking the question this
   // gate is built on, rather than by a second copy of the answer kept here.
-  return <LoginForm onSignedIn={() => void mutate(SESSION_KEY)} />;
+  // The refusal that brought the reader here is dropped first: it is older than
+  // the cookie they have just been given, and until it goes it outranks every
+  // answer the question could come back with.
+  return (
+    <LoginForm
+      onSignedIn={() => {
+        forgetSessionExpiry();
+        void mutate(SESSION_KEY);
+      }}
+    />
+  );
 }
 
 function LoginForm({ onSignedIn }: { onSignedIn: () => void }) {

@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { configure } from "@testing-library/react";
 import { installViewportStub, resetViewport } from "./viewport";
+import { forgetSessionExpiry } from "../front/lib/sessionExpiry";
 
 // Several of the viewer's paths are deliberately on a timer — the pause before
 // a selection is measured, and the wait for the one after it to stop growing —
@@ -31,6 +32,12 @@ if (!("ResizeObserver" in globalThis)) {
 // lacks. The stub answers desktop until a test says otherwise.
 installViewportStub();
 afterEach(resetViewport);
+
+// Whether the reader's session has run out lives in a module store, below any
+// render, because the refusal that sets it arrives in `fetcher`. A test that
+// has a request refused with 401 therefore leaves it set, and the next test in
+// the file would find the gate asking for a password.
+afterEach(forgetSessionExpiry);
 
 // pdf.js constructs a DOMMatrix at module scope, which jsdom does not provide.
 // jsdom tests never rasterize a page, so anything that can be constructed is

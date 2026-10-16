@@ -1,5 +1,7 @@
+import { useSyncExternalStore } from "react";
 import useSWR from "swr";
 import { ApiError, fetcher } from "../lib/fetcher";
+import { sessionHasRunOut, subscribeToSessionExpiry } from "../lib/sessionExpiry";
 import { sessionSchema } from "../../shared/schemas/auth";
 
 export const SESSION_KEY = "/api/auth/session";
@@ -27,6 +29,13 @@ export function useSession(): SessionState {
     revalidateIfStale: true,
     shouldRetryOnError: false,
   });
+
+  // A refusal that arrived after the question was answered. The answer above is
+  // cached and nothing re-asks it, so a 401 to any other request is the newer
+  // fact and outranks it — that is the whole of what sends a reader whose
+  // cookie ran out mid-book back to the password box.
+  const ranOut = useSyncExternalStore(subscribeToSessionExpiry, sessionHasRunOut);
+  if (ranOut) return { state: "signed-out" };
 
   if (data) return { state: "signed-in" };
 

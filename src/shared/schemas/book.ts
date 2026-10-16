@@ -8,6 +8,10 @@ export const bookSummarySchema = z.object({
   pageCount: z.number().int().positive(),
   updatedAt: z.string(),
   hasThumbnail: z.boolean(),
+  // Where the reader left off, so the shelf can say how far each book got.
+  // `null` is a book nobody has opened, which is not page 1: there is no place
+  // to carry on from, and the shelf says only how long the book is.
+  lastReadPage: z.number().int().positive().nullable(),
 });
 
 export type BookSummary = z.infer<typeof bookSummarySchema>;

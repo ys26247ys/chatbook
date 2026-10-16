@@ -18,6 +18,7 @@ import {
 
 import { buildSystemPrompt, resolveLlmConfig } from "../services/llmService";
 import { findPageNumber, readCitations } from "../services/chatService";
+import { searchBook } from "../services/bookSearch";
 import { streamChatReply, type SaveAnswer } from "../services/chatStream";
 import {
   bookOutlineSchema,
@@ -30,6 +31,7 @@ import {
   selectionSearchQuerySchema,
 } from "../../shared/schemas/selection";
 import { sendBookChatRequestSchema, sendChatRequestSchema } from "../../shared/schemas/chat";
+import { TEXT_SEARCH_HIT_LIMIT, textSearchQuerySchema } from "../../shared/schemas/textSearch";
 import type { ErrorCode } from "../../shared/schemas/error";
 import { storageFailure, type ServiceError } from "../services/serviceError";
 import {
@@ -492,6 +494,27 @@ export function createPdfRoute(idClock: IdClock = systemIdClock) {
         }
 
         return c.json(findPageNumber(text, pdf.fullText, pdf.pageCount));
+      })
+      // Searching the book itself, which the highlight search above does not:
+      // that one looks through what the reader marked and what was said about
+      // it. The text is already here —
+      // extracted once at upload for the model to read — so this asks D1 for it
+      // rather than making the browser download a second copy of the book.
+      .get("/pdf/:pdfId/text-search", validate("query", textSearchQuerySchema), async (c) => {
+        const { q } = c.req.valid("query");
+        const pdf = await drizzle(c.env.DB)
+          .select({ fullText: pdfs.fullText })
+          .from(pdfs)
+          .where(eq(pdfs.id, c.req.param("pdfId")))
+          .get();
+        if (!pdf) {
+          return c.json(
+            { error: { code: "PDF_NOT_FOUND" satisfies ErrorCode, message: "PDF not found" } },
+            404,
+          );
+        }
+
+        return c.json(searchBook(pdf.fullText, q, TEXT_SEARCH_HIT_LIMIT));
       })
       // Where the reader is, kept on the server so the book opens there on
       // whichever device is picked up next. Read back as part of the book itself.

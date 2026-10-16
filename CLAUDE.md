@@ -122,6 +122,7 @@ atom に常駐させているわけではない。
 | front と server が交わす形                  | `src/shared/schemas/auth.ts`                           |
 | 画面側のゲートとパスワード入力              | `src/front/components/RequireSession.tsx`              |
 | 在籍を確かめるフック                        | `src/front/hooks/useSession.ts`                        |
+| 後から来た 401 の受け止め                   | `src/front/lib/sessionExpiry.ts`（モジュールの store） |
 
 **セッションは HMAC で署名した Cookie 1 本**（`chatbook_session`、30 日）。中身は失効時刻
 だけで、誰であるかを持たない。**署名を先に検証してから失効を読む**ので、失効時刻を書き換えた
@@ -129,7 +130,8 @@ atom に常駐させているわけではない。
 
 **Cookie には `Secure` を付ける**。公開する以上、平文で運ばれるセッションは平文で運ばれる
 パスワードと同じであるため。代償として**LAN の `http://192.168.x.x:5173` ではログインできない**
-（ブラウザが Cookie を保存しない）。スマホからは公開 URL を使う。`localhost` は安全な
+（ブラウザが Cookie を保存しない）。スマホや iPad からは、公開 URL か、下記
+「公開せずに iPad から読む」の tailnet 名を使う。`localhost` は安全な
 オリジンとして扱われるので、ローカル開発と E2E は影響を受けない。
 
 **秘密が設定されていなければ全部閉じる**。`AUTH_USERNAME` / `AUTH_PASSWORD` /
@@ -143,9 +145,55 @@ atom に常駐させているわけではない。
 いない」と言っているのでパスワードを聞き、それ以外（回線断・500）は「確かめられなかった」
 と出す。後者でパスワードを聞くと、読者のせいでないことを読者のせいにしてしまう。
 
+**読書中に後から来た 401 も同じゲートへ落とす。** セッションが切れるのは何も起きていない
+あいだなので、`revalidateOnFocus` を切ってある以上（`main.tsx` の理由は今も有効）、開いたままの
+タブは `signedIn: true` をキャッシュしたまま訊き直さない。気付く最初の機会は読者の次の
+リクエストが受ける 401 で、それを受け止めるのが `src/front/lib/sessionExpiry.ts` の
+モジュール store 1 つ。**401 の意味を決めるのはここだけ**で、`fetcher.ts` の `readRefusal`
+（全ての拒否がここで文言になる——チャットの SSE と PDF バイナリの生 `fetch` も通るので、
+ストリーミング中の 401 も漏れない）が拒否を丸ごと渡し、**401 以外は何も立てない**
+（回線断・500 でパスワードを聞かないのは上と同じ理由）。`useSession` が
+`useSyncExternalStore` で読んでキャッシュ済みの答えより優先し、**各呼び出し元は 401 を
+解釈しない**。ログインの成功で `forgetSessionExpiry()` が落とす——ゲートはその場に立っている
+ので `?page=` / `?selection=` は動かず、読者は同じ場所へ戻る。守っているのは
+`sessionExpiry.test.ts`（401 だけが立てること・購読）、`RequireSession.test.tsx` の 4 本
+（読書中の 401 でパスワード入力が出る・500 と回線断では出ない・ログイン後に同じアドレスへ
+戻る）、`useChatStream.test.tsx` の 1 本（SSE 経路）。
+
 **端末を失くしたときの取り消し手段は `AUTH_SESSION_SECRET` の入れ替え 1 つだけ**。
 セッションは stateless なので個別には失効させられず、入れ替えると自分の端末も含めて
 全部ログアウトになる。
+
+#### 公開せずに iPad から読む
+
+手元のサーバーをそのまま iPad から読む道。**Cloudflare に何も出さずに済む**ので、公開 URL を
+出すことに抵抗があるならこちら。本もハイライトも `.wrangler/state` のまま動かない。
+
+```bash
+vp dev --host                                        # 127.0.0.1 以外からの接続を受ける
+tailscale serve --bg --https=443 http://127.0.0.1:5173
+```
+
+`https://<マシン名>.<tailnet>.ts.net` で開く。**`tailscale funnel` は使わないこと**——あちらは
+公開インターネットに晒すので、この節の目的と正反対になる。
+
+要るものが 3 つある。
+
+- **HTTPS であること**が要るのは上記の `Secure` のため。tailnet 名には Let's Encrypt の本物の
+  証明書が付くので、ここだけが LAN の IP 直打ちと違う（`http://100.x.y.z:5173` は tailnet の
+  中でも secure origin ではないので、LAN と同じく弾かれる）
+- **`vp dev --host`**。既定では `127.0.0.1` だけで待ち受けるので、`tailscale serve` から繋がらない
+- **`vite.config.ts` の `server.allowedHosts`** に `.ts.net` を並べてある。無いと Vite が
+  `Blocked request. This host is not allowed` を返す。**`true` にしないこと**——あれは
+  DNS rebinding の防護を全ホストで切る設定で、ここで要るのは ts.net の下だけを通すこと
+
+代償は **Mac が起きていること**で、寝ていれば読めない。そこを埋めたいならデプロイする側の道になる。
+
+**公開 URL は、デプロイすれば黙って生える**。`wrangler.jsonc` に `workers_dev` も `routes` も
+書いていないので既定の `workers_dev: true` が効き、`chatbook.<サブドメイン>.workers.dev` が
+誰からでも引ける（API は 401 で閉じているが、ホスト名の存在は隠れない）。出したくないなら
+`"workers_dev": false` を明示する——その場合は routes か custom domain が無いとどこからも
+引けなくなる。
 
 ### デプロイ
 
@@ -583,11 +631,29 @@ be iterated…」**（ネイティブの iterator を消してから本を開く
 
 | フェンス       | 差し替え先                        | 読者に見えるもの                                   |
 | -------------- | --------------------------------- | -------------------------------------------------- |
-| ` ```mermaid ` | `MermaidBlock.tsx`（`ChatArea/`） | 描かれた図（描けなければコードのまま）             |
+| ` ```mermaid ` | `MermaidBlock.tsx`（`ChatArea/`） | 描かれた図。押すと素の寸法でポップアップに開く     |
 | ` ```html `    | `HtmlDiagram.tsx`（`ChatArea/`）  | キャプション付きのリンク。押すとポップアップで開く |
 
-`HtmlDiagram` が出すのは画面を覆う `role="dialog"` のモーダルで、ページ上の選択に貼り付く
-`SelectionPopover` のポップオーバーとは別物である。
+どちらが出すのも画面を覆う `role="dialog"` のモーダルで、ページ上の選択に貼り付く
+`SelectionPopover` のポップオーバーとは別物である。**窓そのものは
+`DiagramPopup.tsx`（`ChatArea/`）1 つ**で、2 つのフェンスが中身だけを渡す（html は
+`iframe`、mermaid は描かれた SVG）。あれを窓にしているのは出口の集まり——Escape・暗幕・
+閉じるボタン・使わないキーを背後へ通さないこと——なので、**出口を 2 箇所に書かない**。
+
+**mermaid の図はクリックで素の寸法に開く。** バブルの中では mermaid が書いた
+`width="100%"` と `style="max-width: <素の寸法>px"` のとおり、図は**容器の幅まで縮む**
+——節点の多い図はそこで読めなくなり、チャットが丸ごとシートになる電話ではほとんどの図が
+そうなる。開いたときに外すのはその上限だけで、**書き換えるのは
+`src/front/lib/mermaidSvg.ts` の `widenSvg` 1 箇所**（`max-width: Npx` を
+`min-width: Npx; max-width: none` に）。天井を床に変えるので、**広い箱では伸びて埋め、
+狭い箱では素の寸法で止まって箱がスクロールする**（本体の `width="100%"` と viewBox が
+残るので、高さは縦横比から付いてくる）。`max-width` が無い図——`useMaxWidth` を切って
+描かれたもの——は元から上限が無いので素通しする。
+**2026-10-16 に実ブラウザで測った記録**（中身 585px の箱）: 842×400 の図は 842×400 の
+まま出て箱がスクロールし、200×100 の図は 585×293 に伸び、バブル側の同じ図は 300×143 の
+ままだった。
+**描き直す経路は増やさない**——ポップアップも `dangerouslySetInnerHTML` で同じ SVG を
+置くので、mermaid 自身の sanitizer に委ねている前提（下記）はそのままである。
 
 **フェンス本文は `textOf` が再帰的に集める。** `language-html` は highlight.js の `xml`
 文法に当たるので、`<code>` の子は text ノード 1 つではなく、`hljs-*` の span 2 つと
@@ -614,13 +680,18 @@ be iterated…」**（ネイティブの iterator を消してから本を開く
 mermaid 自身の sanitizer（既定 `securityLevel: "strict"`）に委ねてよく、回答が書いた生の
 HTML はそこを通せない。
 
-**ストリーミング中はリンクを出さない。** `ChatMessageList` が確定メッセージとは別に描く
-ストリーミング用バブルが `streaming` を渡し、`pre` はそれを読んでコードブロックのまま
-据え置く。書きかけの文書を開かせないためと、開いたポップアップが回答確定で unmount する
-（＝閉じる）のを避けるため。**この配線だけは `ChatMessageList.test.tsx` の 1 本が見張って
-いる**（外しても他は green のまま）。
+**ストリーミング中はどちらの窓も開かせない。** `ChatMessageList` が確定メッセージとは別に
+描くストリーミング用バブルが `streaming` を渡し、`pre` はそれを読んで html フェンスを
+コードブロックのまま据え置き、`MermaidBlock` へもそのまま渡して**図は描くが拡大の口を
+出さない**（mermaid のフェンスは回答が終わる前に閉じうるので、読者が開いた図がそのあと
+描き直される）。どちらも、書きかけを開かせないためと、開いたポップアップが回答確定の
+unmount で消えるのを避けるため。**この配線だけは `ChatMessageList.test.tsx` の 1 本が
+見張っている**（外しても他は green のまま）。mermaid 側の配線は
+`ChatMessageBubble.test.tsx` の「holds back the way into the diagram…」が**両向きで**
+見る——片方だけでは「据え置いた」と「口がそもそも無い」を区別できない。
 
-**Escape は `document` の keydown で受ける**（`SettingsMenu` / `SelectionPopover` と同じ形）。
+**Escape は `document` の keydown で受ける**（`SettingsMenu` / `SelectionPopover` と同じ形。
+購読を持つのは `DiagramPopup` なので、2 つの図は同じ 1 本を通る）。
 `ConfirmDialog` のラッパー `onKeyDown` を採らないのは、**ヘッダをクリックするとフォーカスが
 `body` に落ち、React の根の外側なので合成イベントが届かない**ため。同じ購読で
 `stopPropagation` し、`window` でページ送りキーを読む `PdfViewer` に背後のページを送らせない
@@ -632,9 +703,10 @@ HTML はそこを通せない。
 スクリプトを混ぜることになるので足さない）。閉じるボタンが常に効く道。
 
 **HTML 側の**見張りは jsdom の 4 ファイル。`src/front/lib/htmlDiagram.test.ts`（6 本。
-キャプションの書式と doctype）、`HtmlDiagram.test.tsx`（10 本。リンク・sandbox と srcdoc・
+キャプションの書式と doctype）、`HtmlDiagram.test.tsx`（13 本。リンク・sandbox と srcdoc・
 開く前は閉じている・内側クリックで閉じない・Escape・外側クリック・既定文言・body に
-フォーカスがあっても閉じること・ページ送りキーの対 2 本）、`ChatMessageBubble.test.tsx` に
+フォーカスがあっても閉じること・ページ送りキーの対 2 本・最大化トグル 3 本）、
+`ChatMessageBubble.test.tsx` に
 4 本（フェンスの差し替え・ストリーミング中の据え置き・hljs が割った本文の回収・既定文言）、
 `ChatMessageList.test.tsx` に 1 本（配線）。**E2E は無い**——チャットの送信に実キーが要るため。
 **jsdom は iframe の中身を 1 ピクセルも描かず `srcdoc` も読み込まない**ので、テストは
@@ -645,6 +717,16 @@ HTML はそこを通せない。
 `title` と一致し、フレーム内の要素が描画され、フレーム内の `<script>` が走り、開いている間の
 `→` はページを送らず閉じると送り、console の error / warning は 0 件だった。390×844 px でも
 ポップアップは画面に収まり（358×675 px）、console は静かだった。
+
+**mermaid 側の**見張りは jsdom の 3 ファイル。`src/front/lib/mermaidSvg.test.ts`（5 本。
+上限を床に変えること・小数の寸法・残りを書き換えないこと・上限の無い図は素通し・図自身の
+stylesheet の `max-width` に触らないこと）、`MermaidBlock.test.tsx`（14 本。うち拡大は
+10 本——クリックで開く・開く前は閉じている・素の寸法とスクロールする箱・バブル側は縮んだ
+まま・Escape・外側クリック・内側クリックで閉じない・ページ送りキーの対 2 本・ストリーミング
+中は口が無い）、`ChatMessageBubble.test.tsx` に 1 本（配線。両向き）。**E2E は無い**
+（HTML 側と同じ理由）。**jsdom はレイアウトを持たない**ので、見ているのは `widenSvg` が
+渡した style 文字列と箱のクラス名までで、**実際に伸びること・縮まないこと・スクロールする
+ことはどのテストも通らない**——根拠は上の実測だけ。
 
 ### LLM の呼び分け
 
@@ -1507,9 +1589,11 @@ is opened from the shelf」「an old link naming the panels no longer has a say 
 **マイグレーションを当ててから動かす**。`readPdf` / `storePdf` は drizzle が `pdfs` の全列を
 明示列挙するので、`0002_add_reading_state.sql` / `0003_add_reading_state_chat_panel.sql` /
 `0004_add_outline.sql` / `0006_add_book_chat_reading_state.sql` が未適用の D1 に新しいコードを
-載せると本を開く経路ごと 500 になる（列を絞って読む本棚一覧だけは生き残る。
-`saveReadingState` が落ちるのは、その列を実際に送ったときだけ——開閉と `bookChat` は省略なら
-`set` にも現れない。チャットは `outline` 列を select するので `0004` 未適用では 500）。
+載せると本を開く経路ごと 500 になる（`saveReadingState` が落ちるのは、その列を実際に
+送ったときだけ——開閉と `bookChat` は省略なら `set` にも現れない。チャットは `outline` 列を
+select するので `0004` 未適用では 500）。**本棚一覧も `0002` が要る**——進捗を出すために
+`last_read_page` を select するようになったので、列を絞って読んでいても逃げ切れない
+（下記「本棚は進捗を出す」）。
 ローカルは `pnpm run db:migrate:local`、リモートは
 `vp build` → `wrangler d1 migrations apply chatbook-db --remote` → `pnpm run deploy` の順。
 **列の追加は旧コードに無害なので、先に当てるのが常に安全——ただし `0005_book_chat.sql` だけは
@@ -1532,6 +1616,81 @@ DOM 非依存の純粋関数として実装。`gg` や `C-c t` の2ストロー�
 `KEYBINDING_HELP` をその下に continue する（方向キーを 3 モード分書き写さないため）。
 **拡大中でもページを送る**——タップとスワイプは `ENLARGED_ABOVE` 超で送らないが、キーボードは
 `h` / `l` を含めてその規約の外にある（拡大中に動かしたいのは `↑` / `↓` が担う）。
+
+#### 本棚は進捗を出す
+
+読書位置は既に本ごとに保存されている（上記「読んでいた場所は本と一緒に運ぶ」）ので、**本棚は
+それを読んで出すだけ**で、進捗のための列も保存経路も持たない。出るのは `BookCard`
+（`src/front/pages/ShelfPage.tsx`）のタイトルの下——読書中は `115 / 193 ページ` と
+`role="progressbar"` のバー、未読は `193 ページ` だけでバーは出さない。
+
+**`lastReadPage` の `null` は「まだ開いていない」で、ページ 1 とは別物**。戻る場所が無い本に
+0% のバーを出すと、読み始めたのに進んでいない本と見分けが付かなくなる。`readShelf`
+（`src/server/services/pdfService.ts`）が列を 1 つ足して運び、`bookSummarySchema`
+（`src/shared/schemas/book.ts`）が `nullable` で受ける。
+
+**ページは `pageCount` で丸める**（`readingProgress`）。同じ本を短い版で上げ直しても
+読書位置は残る（`storePdf` が列を明示列挙して場所を保たせている）ので、本の終わりを越えた
+ページがそのまま残りうる。丸めないと 100% を超えたバーが出て、古い数字ではなくバグに見える。
+
+**バーはカードを開くボタンの外に置く**。ボタンは支援技術から葉として扱われることがあり、
+中に入れた `progressbar` が読まれる保証が無い。
+
+**`updatedAt` は動かないので本棚の並びは変わらない**（読書位置の保存は `updatedAt` に触らない。
+上記「読んでいた場所は本と一緒に運ぶ」）。読み進めただけの本が本棚の先頭へ来ることはない。
+
+守っているのは `src/front/pages/ShelfPage.test.tsx` の 3 本（読書中・未読・最終ページ）と
+`test/worker/pdf.test.ts` の `GET /api/pdfs` の「carries how far the reader got in each book」。
+
+#### 本文の検索
+
+**検索は 2 つある。混同しないこと。** 右の `HighlightListPanel` が読者の**マークした箇所と
+その会話**を絞り込み（`GET /pdf/:pdfId/search`、`useHighlightSearch`）、左の `PdfSidePanel` が
+**本そのもの**を探す（`GET /pdf/:pdfId/text-search`、`useTextSearch`）。前者は D1 の
+`selections` と `chat_messages` を、後者は `pdfs.full_text` を見る。パスを `search` と
+`text-search` で分けてあるのは、同じ `/pdf/:pdfId/search` に 2 つ目を足すと先に定義された方が
+黙って勝つため（実際に一度踏んだ）。
+
+**本文はサーバで探す**。全文はアップロード時に 1 度だけ抽出されて D1 にあり、モデルに読ませる
+ために既にそこにある。ブラウザで探すなら本 1 冊ぶん（実書籍で 213KB）を 2 度目に落とすことに
+なるので、その必要がない。
+
+照合は `src/server/services/bookSearch.ts` の `searchBook` が行う純粋関数で、**3 つを畳む**:
+
+| 畳むもの                | なぜ                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| 空白                    | pdf.js が text item の間に挿むので、単語の途中に空白が入る（`findPageNumber` が剥がすのと同じ理由） |
+| 大文字小文字            | `AWS` を打つのは `aws` に当てないためではない                                                       |
+| 互換形（文字単位 NFKC） | 日本語の組版が使う全角ラテンに、読者が打つ半角が当たる                                              |
+
+**畳んだ位置から元の位置へ戻す対応表（`sources`）が要る**。スニペットは本の字面で出すもので、
+畳んだ文字列を見せるものではない。返す `matchStart` / `matchLength` も同じ理由——スニペットを
+クエリで検索し直しても当たらない（当たったのは畳んだ形）ので、**どこが当たったかはサーバが言う**。
+
+**ページごとに閉じて探す**ので、ページ区切りをまたぐ語句は当たらない。1 件のヒットは 1 つの
+ページを名指すものであり、またいで切ったスニペットは飛んだ先のページに無い字を引用してしまう。
+
+**`total` は本全体の件数、`hits` は `TEXT_SEARCH_HIT_LIMIT`（100）で止まる**。「の」で引いた
+読者に、一覧が 400 件中 100 件なのか 51 件中 50 件なのかを言わないと、信用できない一覧を
+信用させることになる。
+
+**打つたびには検索しない**（`submit` まで何も訊かない）。`useHighlightSearch` と同じ理由で、
+1 打ごとの往復は書きかけの日本語——IME の変換中——に答えることになる。Enter の判定は
+`isSubmitKey` を通す。
+
+**ヒットを選ぶのは引用リンクを辿るのと同じ**。`setCurrentPage` と `setCitedPassage` の 2 つを
+書くだけで、ページ上に印を置くのは既存の `citedPassage` の仕組み（`CitationLink` と
+`PdfViewer` の effect）がやる。**印を置く機構を新しく作らないこと。** 同じページに複数ヒットが
+あるときは最初の出現に付く——`locateQuoteInSpans` は何番目かを知らない。
+
+**左の列は `PdfSidePanel` が持つ**（幅・枠・検索箱）。`PdfOutline` は中身だけになったので、
+あの `nav` に `w-60` や `border-r` を戻さないこと（箱が二重になる）。検索中は目次の代わりに
+結果が出る。
+
+守っているのは `src/server/services/bookSearch.test.ts`（畳み方・ページ・スニペット・上限の
+14 本）、`src/front/components/PdfViewer/PdfSidePanel.test.tsx`（打っただけでは検索しない、
+結果からの飛び先、件数、失敗の 8 本）、`test/worker/pdf.test.ts` の
+`GET /api/pdf/:pdfId/text-search`（4 本）。
 
 ## テスト
 
@@ -1566,6 +1725,11 @@ jsdom はレイアウトを持たないので、幅にまつわる API がどれ
 `matchMedia`（`src/test/viewport.ts` の差し替え可能なスタブ）を置く。あわせて
 `asyncUtilTimeout` を 5000ms にしている——選択の確定を 250ms 待つ経路があり、既定の
 1000ms だと並列実行の負荷で毎回違うテストが落ちるため。
+
+セッションが切れたかどうかはレンダーの下のモジュール store（上記「ログインとセッション」）に
+あるので、401 で拒否されたリクエストを 1 つ持つテストはそれを立てたまま終わる。`afterEach` が
+`forgetSessionExpiry()` で毎回落とすので、同じファイルの次のテストがゲートにパスワードを
+聞かれることはない。
 
 **`matchMedia` の既定は 1280px（デスクトップ）**にしてある。狭いレイアウトを前提にしない
 既存のテストを 1 行も書き換えずに済ませるため。狭い幅で試すときは

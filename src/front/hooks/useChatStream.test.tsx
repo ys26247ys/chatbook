@@ -20,6 +20,7 @@ import {
   tokenEvent,
 } from "../../test/streamingFetchStub";
 import { ApiError } from "../lib/fetcher";
+import { forgetSessionExpiry, sessionHasRunOut } from "../lib/sessionExpiry";
 import type { Citation } from "../../shared/schemas/citation";
 
 const QUESTION = "Durable Objects とは?";
@@ -358,6 +359,29 @@ describe("useChatStream", () => {
 
     expect((await retried)._unsafeUnwrap()).toBe("m2");
     expect(store.get(chatErrorAtom)).toBeNull();
+  });
+
+  it("reports a session that ran out mid-read, which the stream's own fetch would otherwise swallow", async () => {
+    // The stream does not go through `fetcher`, so a 401 here would be read as
+    // nothing but a line in the chat panel unless the refusal is reported.
+    const refused: typeof fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { code: "UNAUTHORIZED", message: "ログインしてください" } }),
+          { status: 401, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const { store, view } = renderChatStream(refused);
+
+    let sent!: ResultAsync<string, ApiError>;
+    await act(async () => {
+      sent = view.result.current.sendMessage("p1", "s1", QUESTION, false);
+      await sent;
+    });
+
+    expect(sessionHasRunOut()).toBe(true);
+    expect(store.get(chatErrorAtom)).toBe("回答の取得に失敗しました: ログインしてください");
+    forgetSessionExpiry();
   });
 
   it("stamps both messages with the injected clock instead of the wall clock", async () => {
