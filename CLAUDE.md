@@ -130,7 +130,8 @@ atom に常駐させているわけではない。
 
 **Cookie には `Secure` を付ける**。公開する以上、平文で運ばれるセッションは平文で運ばれる
 パスワードと同じであるため。代償として**LAN の `http://192.168.x.x:5173` ではログインできない**
-（ブラウザが Cookie を保存しない）。スマホからは公開 URL を使う。`localhost` は安全な
+（ブラウザが Cookie を保存しない）。スマホや iPad からは、公開 URL か、下記
+「公開せずに iPad から読む」の tailnet 名を使う。`localhost` は安全な
 オリジンとして扱われるので、ローカル開発と E2E は影響を受けない。
 
 **秘密が設定されていなければ全部閉じる**。`AUTH_USERNAME` / `AUTH_PASSWORD` /
@@ -162,6 +163,37 @@ atom に常駐させているわけではない。
 **端末を失くしたときの取り消し手段は `AUTH_SESSION_SECRET` の入れ替え 1 つだけ**。
 セッションは stateless なので個別には失効させられず、入れ替えると自分の端末も含めて
 全部ログアウトになる。
+
+#### 公開せずに iPad から読む
+
+手元のサーバーをそのまま iPad から読む道。**Cloudflare に何も出さずに済む**ので、公開 URL を
+出すことに抵抗があるならこちら。本もハイライトも `.wrangler/state` のまま動かない。
+
+```bash
+vp dev --host                                        # 127.0.0.1 以外からの接続を受ける
+tailscale serve --bg --https=443 http://127.0.0.1:5173
+```
+
+`https://<マシン名>.<tailnet>.ts.net` で開く。**`tailscale funnel` は使わないこと**——あちらは
+公開インターネットに晒すので、この節の目的と正反対になる。
+
+要るものが 3 つある。
+
+- **HTTPS であること**が要るのは上記の `Secure` のため。tailnet 名には Let's Encrypt の本物の
+  証明書が付くので、ここだけが LAN の IP 直打ちと違う（`http://100.x.y.z:5173` は tailnet の
+  中でも secure origin ではないので、LAN と同じく弾かれる）
+- **`vp dev --host`**。既定では `127.0.0.1` だけで待ち受けるので、`tailscale serve` から繋がらない
+- **`vite.config.ts` の `server.allowedHosts`** に `.ts.net` を並べてある。無いと Vite が
+  `Blocked request. This host is not allowed` を返す。**`true` にしないこと**——あれは
+  DNS rebinding の防護を全ホストで切る設定で、ここで要るのは ts.net の下だけを通すこと
+
+代償は **Mac が起きていること**で、寝ていれば読めない。そこを埋めたいならデプロイする側の道になる。
+
+**公開 URL は、デプロイすれば黙って生える**。`wrangler.jsonc` に `workers_dev` も `routes` も
+書いていないので既定の `workers_dev: true` が効き、`chatbook.<サブドメイン>.workers.dev` が
+誰からでも引ける（API は 401 で閉じているが、ホスト名の存在は隠れない）。出したくないなら
+`"workers_dev": false` を明示する——その場合は routes か custom domain が無いとどこからも
+引けなくなる。
 
 ### デプロイ
 
