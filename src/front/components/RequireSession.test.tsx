@@ -1,19 +1,71 @@
 import { describe, it, expect, afterEach, vi } from "vite-plus/test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
+import { z } from "zod";
 import { RequireSession } from "./RequireSession";
 import { SwrTestCache } from "../../test/swrTestCache";
+import { resultFetcher } from "../lib/fetcher";
+import { forgetSessionExpiry } from "../lib/sessionExpiry";
 
 const SHELF = "本棚の中身";
+const READ = "本を読む";
 
-function renderGate() {
+function renderGate(children: ReactNode = <p>{SHELF}</p>) {
   return render(
     <SwrTestCache>
-      <RequireSession>
-        <p>{SHELF}</p>
-      </RequireSession>
+      <RequireSession>{children}</RequireSession>
     </SwrTestCache>,
   );
+}
+
+/**
+ * The app behind the gate, with something for the reader to ask the server for.
+ *
+ * The button stands for every request a reader makes while reading — a page, a
+ * highlight, an answer — all of which arrive at the same refusal.
+ */
+function Reading() {
+  return (
+    <div>
+      <p>{SHELF}</p>
+      <button
+        type="button"
+        onClick={() => {
+          void resultFetcher("/api/pdf/b1", z.object({ id: z.string() }));
+        }}
+      >
+        {READ}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A server that knows the reader by a cookie that has already gone: it still
+ * remembers answering the session question, but refuses everything else.
+ */
+function serverWhoseSessionRanOut(refusalStatus: number): typeof fetch {
+  const fetchFn = (url: string) => {
+    if (url.endsWith("/api/auth/session")) {
+      return Promise.resolve(new Response(JSON.stringify({ signedIn: true }), { status: 200 }));
+    }
+    if (url.endsWith("/api/auth/login")) {
+      return Promise.resolve(new Response(JSON.stringify({ signedIn: true }), { status: 200 }));
+    }
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: refusalStatus === 401 ? "UNAUTHORIZED" : "INTERNAL_ERROR",
+            message: refusalStatus === 401 ? "ログインしてください" : "Unexpected server error",
+          },
+        }),
+        { status: refusalStatus, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  };
+  return fetchFn as unknown as typeof fetch;
 }
 
 /** A server that refuses until the right password arrives, then lets them in. */
@@ -51,7 +103,13 @@ function serverWithPassword(password: string) {
 }
 
 describe("RequireSession", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    forgetSessionExpiry();
+    // One test reads a book at an address of its own; the gate is meant to
+    // leave the address alone, so nothing else puts it back.
+    window.history.replaceState({}, "", "/");
+  });
 
   it("shows the reader's books once the server says they are signed in", async () => {
     vi.stubGlobal("fetch", () =>
@@ -122,6 +180,69 @@ describe("RequireSession", () => {
       /^ログイン状態を確認できませんでした: サーバーにログイン情報が設定されていません$/,
     );
     expect(screen.queryByLabelText("パスワード")).toBeNull();
+  });
+
+  it("asks for the password again when a request answers 401 while the reader is reading", async () => {
+    // The tab was opened while the cookie was still good, so the gate has a
+    // signed-in answer cached and nothing re-asks the question on its own.
+    // The refusal the reader's next request comes back with is the only news
+    // there is, and without it the reader is left with an error message in a
+    // panel and nowhere to type a password.
+    vi.stubGlobal("fetch", serverWhoseSessionRanOut(401));
+    renderGate(<Reading />);
+    await screen.findByText(SHELF);
+
+    await userEvent.click(screen.getByRole("button", { name: READ }));
+
+    expect(await screen.findByLabelText("パスワード")).toBeInTheDocument();
+    expect(screen.queryByText(SHELF)).toBeNull();
+  });
+
+  it("keeps the reader in the book when a request fails for the server's own reasons", async () => {
+    // A password box here would tell the reader their password is the problem
+    // when the server is the one that came apart.
+    vi.stubGlobal("fetch", serverWhoseSessionRanOut(500));
+    renderGate(<Reading />);
+    await screen.findByText(SHELF);
+
+    await userEvent.click(screen.getByRole("button", { name: READ }));
+
+    expect(screen.queryByLabelText("パスワード")).toBeNull();
+    expect(screen.getByText(SHELF)).toBeInTheDocument();
+  });
+
+  it("keeps the reader in the book when a request never reached the server", async () => {
+    vi.stubGlobal("fetch", (url: string) =>
+      url.endsWith("/api/auth/session")
+        ? Promise.resolve(new Response(JSON.stringify({ signedIn: true }), { status: 200 }))
+        : Promise.reject(new TypeError("Failed to fetch")),
+    );
+    renderGate(<Reading />);
+    await screen.findByText(SHELF);
+
+    await userEvent.click(screen.getByRole("button", { name: READ }));
+
+    expect(screen.queryByLabelText("パスワード")).toBeNull();
+    expect(screen.getByText(SHELF)).toBeInTheDocument();
+  });
+
+  it("comes back to the page and the highlight the reader was on once they sign in again", async () => {
+    // What makes signing in again cost the reader nothing: their place is in
+    // the address, and the gate never moved it.
+    window.history.replaceState({}, "", "/books/b1?page=7&selection=01KZSELECTION");
+    vi.stubGlobal("fetch", serverWhoseSessionRanOut(401));
+    renderGate(<Reading />);
+    await screen.findByText(SHELF);
+    await userEvent.click(screen.getByRole("button", { name: READ }));
+    await screen.findByLabelText("パスワード");
+
+    await userEvent.type(screen.getByLabelText("ユーザー名"), "demo");
+    await userEvent.type(screen.getByLabelText("パスワード"), "demo");
+    await userEvent.click(screen.getByRole("button", { name: "ログイン" }));
+
+    expect(await screen.findByText(SHELF)).toBeInTheDocument();
+    expect(window.location.search).toBe("?page=7&selection=01KZSELECTION");
+    expect(window.location.pathname).toBe("/books/b1");
   });
 
   it("says the server could not be reached rather than asking for a password", async () => {

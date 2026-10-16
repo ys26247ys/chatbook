@@ -1,6 +1,7 @@
 import { ResultAsync } from "neverthrow";
 import type { z } from "zod";
 import { errorEnvelopeSchema } from "../../shared/schemas/error";
+import { reportRefusal } from "./sessionExpiry";
 
 /**
  * Where a request came apart, for callers that treat the three differently:
@@ -98,13 +99,20 @@ export async function fetcher<S extends z.ZodType>(
 export async function readRefusal(url: string, response: Response): Promise<ApiError> {
   const body: unknown = await response.json().catch(() => null);
   const envelope = errorEnvelopeSchema.safeParse(body);
-  return envelope.success
+  const refusal = envelope.success
     ? new ApiError(envelope.data.error.message, envelope.data.error.code, response.status)
     : new ApiError(
         `request to ${url} failed with status ${response.status}`,
         CLIENT_ERROR_CODES.unknown,
         response.status,
       );
+
+  // Every refusal in this app is worded here — the chat stream's and the PDF
+  // binary's included — which is why this is where they are handed over.
+  // Whether one says anything about the reader's session is decided in
+  // `sessionExpiry.ts` and nowhere else; this function only words it.
+  reportRefusal(refusal);
+  return refusal;
 }
 
 /**
