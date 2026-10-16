@@ -164,7 +164,9 @@ function fenceRenderer(streaming: boolean) {
     );
 
     const diagram = fenceSource(node, "mermaid");
-    if (diagram !== null) return <MermaidBlock code={diagram} fallback={plain} />;
+    if (diagram !== null) {
+      return <MermaidBlock code={diagram} fallback={plain} streaming={streaming} />;
+    }
 
     // While the tokens are still arriving the fence holds half a document, so
     // it goes on being shown as the code it would have been shown as anyway,

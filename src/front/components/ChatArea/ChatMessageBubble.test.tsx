@@ -104,6 +104,29 @@ describe("ChatMessageBubble", () => {
     expect(container.querySelector("pre")).toBeNull();
   });
 
+  // Both halves of one promise: alone, the streaming half cannot tell "the way
+  // in is held back" from "there is no way in at all".
+  it("holds back the way into the diagram while the answer is still streaming", () => {
+    const svg = '<svg aria-label="diagram"><text>Start</text></svg>';
+    const seed = { [unstable_serialize(["mermaid", "graph TD\n"])]: svg };
+    const fence = "```mermaid\ngraph TD\n```";
+
+    const { container } = render(
+      <SwrTestCache seed={seed}>
+        <ChatMessageBubble streaming message={message({ content: fence })} />
+      </SwrTestCache>,
+    );
+    expect(container.querySelector("svg")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "図を拡大" })).toBeNull();
+
+    render(
+      <SwrTestCache seed={seed}>
+        <ChatMessageBubble message={message({ content: fence })} />
+      </SwrTestCache>,
+    );
+    expect(screen.getByRole("button", { name: "図を拡大" })).toBeInTheDocument();
+  });
+
   it("shows a mermaid fence as code until its diagram has been drawn", () => {
     const { container } = render(
       // No seed, so the diagram is still on its way

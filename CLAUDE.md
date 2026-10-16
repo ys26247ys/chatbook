@@ -599,11 +599,29 @@ be iterated…」**（ネイティブの iterator を消してから本を開く
 
 | フェンス       | 差し替え先                        | 読者に見えるもの                                   |
 | -------------- | --------------------------------- | -------------------------------------------------- |
-| ` ```mermaid ` | `MermaidBlock.tsx`（`ChatArea/`） | 描かれた図（描けなければコードのまま）             |
+| ` ```mermaid ` | `MermaidBlock.tsx`（`ChatArea/`） | 描かれた図。押すと素の寸法でポップアップに開く     |
 | ` ```html `    | `HtmlDiagram.tsx`（`ChatArea/`）  | キャプション付きのリンク。押すとポップアップで開く |
 
-`HtmlDiagram` が出すのは画面を覆う `role="dialog"` のモーダルで、ページ上の選択に貼り付く
-`SelectionPopover` のポップオーバーとは別物である。
+どちらが出すのも画面を覆う `role="dialog"` のモーダルで、ページ上の選択に貼り付く
+`SelectionPopover` のポップオーバーとは別物である。**窓そのものは
+`DiagramPopup.tsx`（`ChatArea/`）1 つ**で、2 つのフェンスが中身だけを渡す（html は
+`iframe`、mermaid は描かれた SVG）。あれを窓にしているのは出口の集まり——Escape・暗幕・
+閉じるボタン・使わないキーを背後へ通さないこと——なので、**出口を 2 箇所に書かない**。
+
+**mermaid の図はクリックで素の寸法に開く。** バブルの中では mermaid が書いた
+`width="100%"` と `style="max-width: <素の寸法>px"` のとおり、図は**容器の幅まで縮む**
+——節点の多い図はそこで読めなくなり、チャットが丸ごとシートになる電話ではほとんどの図が
+そうなる。開いたときに外すのはその上限だけで、**書き換えるのは
+`src/front/lib/mermaidSvg.ts` の `widenSvg` 1 箇所**（`max-width: Npx` を
+`min-width: Npx; max-width: none` に）。天井を床に変えるので、**広い箱では伸びて埋め、
+狭い箱では素の寸法で止まって箱がスクロールする**（本体の `width="100%"` と viewBox が
+残るので、高さは縦横比から付いてくる）。`max-width` が無い図——`useMaxWidth` を切って
+描かれたもの——は元から上限が無いので素通しする。
+**2026-10-16 に実ブラウザで測った記録**（中身 585px の箱）: 842×400 の図は 842×400 の
+まま出て箱がスクロールし、200×100 の図は 585×293 に伸び、バブル側の同じ図は 300×143 の
+ままだった。
+**描き直す経路は増やさない**——ポップアップも `dangerouslySetInnerHTML` で同じ SVG を
+置くので、mermaid 自身の sanitizer に委ねている前提（下記）はそのままである。
 
 **フェンス本文は `textOf` が再帰的に集める。** `language-html` は highlight.js の `xml`
 文法に当たるので、`<code>` の子は text ノード 1 つではなく、`hljs-*` の span 2 つと
@@ -630,13 +648,18 @@ be iterated…」**（ネイティブの iterator を消してから本を開く
 mermaid 自身の sanitizer（既定 `securityLevel: "strict"`）に委ねてよく、回答が書いた生の
 HTML はそこを通せない。
 
-**ストリーミング中はリンクを出さない。** `ChatMessageList` が確定メッセージとは別に描く
-ストリーミング用バブルが `streaming` を渡し、`pre` はそれを読んでコードブロックのまま
-据え置く。書きかけの文書を開かせないためと、開いたポップアップが回答確定で unmount する
-（＝閉じる）のを避けるため。**この配線だけは `ChatMessageList.test.tsx` の 1 本が見張って
-いる**（外しても他は green のまま）。
+**ストリーミング中はどちらの窓も開かせない。** `ChatMessageList` が確定メッセージとは別に
+描くストリーミング用バブルが `streaming` を渡し、`pre` はそれを読んで html フェンスを
+コードブロックのまま据え置き、`MermaidBlock` へもそのまま渡して**図は描くが拡大の口を
+出さない**（mermaid のフェンスは回答が終わる前に閉じうるので、読者が開いた図がそのあと
+描き直される）。どちらも、書きかけを開かせないためと、開いたポップアップが回答確定の
+unmount で消えるのを避けるため。**この配線だけは `ChatMessageList.test.tsx` の 1 本が
+見張っている**（外しても他は green のまま）。mermaid 側の配線は
+`ChatMessageBubble.test.tsx` の「holds back the way into the diagram…」が**両向きで**
+見る——片方だけでは「据え置いた」と「口がそもそも無い」を区別できない。
 
-**Escape は `document` の keydown で受ける**（`SettingsMenu` / `SelectionPopover` と同じ形）。
+**Escape は `document` の keydown で受ける**（`SettingsMenu` / `SelectionPopover` と同じ形。
+購読を持つのは `DiagramPopup` なので、2 つの図は同じ 1 本を通る）。
 `ConfirmDialog` のラッパー `onKeyDown` を採らないのは、**ヘッダをクリックするとフォーカスが
 `body` に落ち、React の根の外側なので合成イベントが届かない**ため。同じ購読で
 `stopPropagation` し、`window` でページ送りキーを読む `PdfViewer` に背後のページを送らせない
@@ -648,9 +671,10 @@ HTML はそこを通せない。
 スクリプトを混ぜることになるので足さない）。閉じるボタンが常に効く道。
 
 **HTML 側の**見張りは jsdom の 4 ファイル。`src/front/lib/htmlDiagram.test.ts`（6 本。
-キャプションの書式と doctype）、`HtmlDiagram.test.tsx`（10 本。リンク・sandbox と srcdoc・
+キャプションの書式と doctype）、`HtmlDiagram.test.tsx`（13 本。リンク・sandbox と srcdoc・
 開く前は閉じている・内側クリックで閉じない・Escape・外側クリック・既定文言・body に
-フォーカスがあっても閉じること・ページ送りキーの対 2 本）、`ChatMessageBubble.test.tsx` に
+フォーカスがあっても閉じること・ページ送りキーの対 2 本・最大化トグル 3 本）、
+`ChatMessageBubble.test.tsx` に
 4 本（フェンスの差し替え・ストリーミング中の据え置き・hljs が割った本文の回収・既定文言）、
 `ChatMessageList.test.tsx` に 1 本（配線）。**E2E は無い**——チャットの送信に実キーが要るため。
 **jsdom は iframe の中身を 1 ピクセルも描かず `srcdoc` も読み込まない**ので、テストは
@@ -661,6 +685,16 @@ HTML はそこを通せない。
 `title` と一致し、フレーム内の要素が描画され、フレーム内の `<script>` が走り、開いている間の
 `→` はページを送らず閉じると送り、console の error / warning は 0 件だった。390×844 px でも
 ポップアップは画面に収まり（358×675 px）、console は静かだった。
+
+**mermaid 側の**見張りは jsdom の 3 ファイル。`src/front/lib/mermaidSvg.test.ts`（5 本。
+上限を床に変えること・小数の寸法・残りを書き換えないこと・上限の無い図は素通し・図自身の
+stylesheet の `max-width` に触らないこと）、`MermaidBlock.test.tsx`（14 本。うち拡大は
+10 本——クリックで開く・開く前は閉じている・素の寸法とスクロールする箱・バブル側は縮んだ
+まま・Escape・外側クリック・内側クリックで閉じない・ページ送りキーの対 2 本・ストリーミング
+中は口が無い）、`ChatMessageBubble.test.tsx` に 1 本（配線。両向き）。**E2E は無い**
+（HTML 側と同じ理由）。**jsdom はレイアウトを持たない**ので、見ているのは `widenSvg` が
+渡した style 文字列と箱のクラス名までで、**実際に伸びること・縮まないこと・スクロールする
+ことはどのテストも通らない**——根拠は上の実測だけ。
 
 ### LLM の呼び分け
 
