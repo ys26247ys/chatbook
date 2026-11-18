@@ -47,7 +47,14 @@ export function questionHeading(question: string): string {
 
 /** What a new note starts with: the book, and the heading questions go under. */
 export function renderNoteBody(book: NoteBook, title: string, baseUrl: string): string {
-  return lines([`# ${title}`, "", `[リーダーで開く](${bookUrl(book, baseUrl)})`, "", "## 質問", ""]);
+  return lines([
+    `# ${title}`,
+    "",
+    `[リーダーで開く](${bookUrl(book, baseUrl)})`,
+    "",
+    "## 質問",
+    "",
+  ]);
 }
 
 /**
