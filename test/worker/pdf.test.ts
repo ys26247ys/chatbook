@@ -1654,3 +1654,172 @@ describe("openPdf with an injected IdClock", () => {
     });
   });
 });
+
+describe("GET /api/pdf/:pdfId/export", () => {
+  /** Inserts a message the way a finished turn stores one. */
+  async function addMessage(fields: {
+    id: string;
+    pdfId: string;
+    selectionId: string | null;
+    role: "user" | "assistant";
+    content: string;
+    createdAt: string;
+  }) {
+    await env.DB.prepare(
+      "INSERT INTO chat_messages (id, selection_id, pdf_id, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        fields.id,
+        fields.selectionId,
+        fields.pdfId,
+        fields.role,
+        fields.content,
+        fields.createdAt,
+      )
+      .run();
+  }
+
+  async function exportNotes(pdfId: string, since?: string) {
+    const query = since === undefined ? "" : `?since=${encodeURIComponent(since)}`;
+    return apiFetch(`https://example.com/api/pdf/${pdfId}/export${query}`);
+  }
+
+  it("hands over a highlight's question with the passage and page it hangs off", async () => {
+    const book = await uploadBook({
+      tag: "export-one",
+      fileName: "export-one.pdf",
+      pages: ["一ページ目", "直交性とは、ある一つの変更が他に波及しないことを言う。"],
+    });
+    const selection = (await (
+      await postSelection(book.id, {
+        selectedText: "直交性とは、ある一つの変更が他に波及しないことを言う。",
+        pageNumber: 2,
+        positionData: { rects: [{ x: 0, y: 0, width: 10, height: 10 }] },
+      })
+    ).json()) as { id: string };
+    await addMessage({
+      id: "export-q1",
+      pdfId: book.id,
+      selectionId: selection.id,
+      role: "user",
+      content: "直交性と疎結合はどう違うんですか？",
+      createdAt: "2026-11-01T00:00:00.000Z",
+    });
+    await addMessage({
+      id: "export-a1",
+      pdfId: book.id,
+      selectionId: selection.id,
+      role: "assistant",
+      content: "疎結合は……",
+      createdAt: "2026-11-01T00:00:05.000Z",
+    });
+
+    const response = await exportNotes(book.id);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toStrictEqual({
+      pdfId: book.id,
+      fileName: "export-one.pdf",
+      pageCount: 2,
+      questions: [
+        {
+          questionId: "export-q1",
+          question: "直交性と疎結合はどう違うんですか？",
+          answerId: "export-a1",
+          answer: "疎結合は……",
+          selectionId: selection.id,
+          quote: "直交性とは、ある一つの変更が他に波及しないことを言う。",
+          pageNumber: 2,
+          askedAt: "2026-11-01T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+
+  it("carries a question about the book itself with no passage under it", async () => {
+    const book = await uploadBook({ tag: "export-book-chat", fileName: "export-book-chat.pdf" });
+    await addMessage({
+      id: "export-q-book",
+      pdfId: book.id,
+      selectionId: null,
+      role: "user",
+      content: "この本の主張を3つに",
+      createdAt: "2026-11-01T00:00:00.000Z",
+    });
+
+    const { questions } = (await (await exportNotes(book.id)).json()) as {
+      questions: Record<string, unknown>[];
+    };
+
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatchObject({
+      questionId: "export-q-book",
+      selectionId: null,
+      quote: null,
+      pageNumber: null,
+    });
+  });
+
+  it("leaves out the questions the note already holds", async () => {
+    const book = await uploadBook({ tag: "export-since", fileName: "export-since.pdf" });
+    await addMessage({
+      id: "export-old",
+      pdfId: book.id,
+      selectionId: null,
+      role: "user",
+      content: "古い質問",
+      createdAt: "2026-11-01T00:00:00.000Z",
+    });
+    await addMessage({
+      id: "export-new",
+      pdfId: book.id,
+      selectionId: null,
+      role: "user",
+      content: "新しい質問",
+      createdAt: "2026-11-02T00:00:00.000Z",
+    });
+
+    const { questions } = (await (
+      await exportNotes(book.id, "2026-11-01T00:00:00.000Z")
+    ).json()) as { questions: { questionId: string }[] };
+
+    expect(questions.map((q) => q.questionId)).toStrictEqual(["export-new"]);
+  });
+
+  it("leaves another book's questions out of the answer", async () => {
+    const mine = await uploadBook({ tag: "export-scope-a", fileName: "export-scope-a.pdf" });
+    const other = await uploadBook({ tag: "export-scope-b", fileName: "export-scope-b.pdf" });
+    await addMessage({
+      id: "export-other",
+      pdfId: other.id,
+      selectionId: null,
+      role: "user",
+      content: "よその本の質問",
+      createdAt: "2026-11-01T00:00:00.000Z",
+    });
+
+    const { questions } = (await (await exportNotes(mine.id)).json()) as { questions: unknown[] };
+
+    expect(questions).toStrictEqual([]);
+  });
+
+  it("says the book is missing when it is not there", async () => {
+    const response = await exportNotes("does-not-exist");
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toStrictEqual({
+      error: { code: "PDF_NOT_FOUND", message: "PDF not found" },
+    });
+  });
+
+  it("refuses a since that is not a timestamp", async () => {
+    const book = await uploadBook({ tag: "export-bad-since", fileName: "export-bad-since.pdf" });
+
+    const response = await exportNotes(book.id, "きのう");
+
+    expect(response.status).toBe(400);
+    const { error } = (await response.json()) as { error: { code: string; message: string } };
+    expect(error.code).toBe("VALIDATION_ERROR");
+    expect(error.message).toContain("since");
+  });
+});

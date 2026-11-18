@@ -10,6 +10,7 @@ import {
   deletePdf,
   saveReadingState,
   searchSelections,
+  readBookExport,
   thumbnailObjectKey,
   THUMBNAIL_CONTENT_TYPE,
   systemIdClock,
@@ -31,6 +32,7 @@ import {
   selectionSearchQuerySchema,
 } from "../../shared/schemas/selection";
 import { sendBookChatRequestSchema, sendChatRequestSchema } from "../../shared/schemas/chat";
+import { bookExportQuerySchema } from "../../shared/schemas/export";
 import { TEXT_SEARCH_HIT_LIMIT, textSearchQuerySchema } from "../../shared/schemas/textSearch";
 import type { ErrorCode } from "../../shared/schemas/error";
 import { storageFailure, type ServiceError } from "../services/serviceError";
@@ -515,6 +517,22 @@ export function createPdfRoute(idClock: IdClock = systemIdClock) {
         }
 
         return c.json(searchBook(pdf.fullText, q, TEXT_SEARCH_HIT_LIMIT));
+      })
+      // The reading notes: a book's questions and the answers they got, for
+      // the script that writes them into the Obsidian vault. `since` is how a
+      // note says what it already holds, so a second run adds only what came
+      // after it.
+      .get("/pdf/:pdfId/export", validate("query", bookExportQuerySchema), async (c) => {
+        const exported = await readBookExport(
+          c.env.DB,
+          c.req.param("pdfId"),
+          c.req.valid("query").since ?? null,
+        );
+
+        return exported.match(
+          (found) => c.json(found),
+          (failure) => serviceFailureResponse(c, failure, PDF_NOT_FOUND),
+        );
       })
       // Where the reader is, kept on the server so the book opens there on
       // whichever device is picked up next. Read back as part of the book itself.

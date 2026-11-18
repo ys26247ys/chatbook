@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import { drizzle } from "drizzle-orm/d1";
 import { desc, eq } from "drizzle-orm";
 import { ResultAsync, err, ok } from "neverthrow";
-import { pdfs, selections } from "../db/schema";
+import { pdfs, selections, chatMessages } from "../db/schema";
 import type {
   BookOutline,
   BookSummary,
@@ -12,6 +12,8 @@ import type {
 } from "../../shared/schemas/book";
 import { positionDataSchema, type PositionData } from "../../shared/schemas/selection";
 import { notFound, storageFailure, type ServiceError, type StorageError } from "./serviceError";
+import type { BookExport } from "../../shared/schemas/export";
+import { pairQuestions } from "./bookExport";
 
 /**
  * R2 object key for a PDF, derived from its content hash.
@@ -381,5 +383,64 @@ async function readPdf(db: D1Database, bucket: R2Bucket, pdfId: string) {
       color: s.color,
       createdAt: s.createdAt,
     })),
+  };
+}
+
+/**
+ * The book's questions and the answers they got, for the reading notes.
+ *
+ * The whole conversation of the book is read rather than only the rows after
+ * `since`: a question and its answer are separate rows, so a window cutting
+ * between them would hand back an answer with no question. One book's chat is
+ * tens of rows, so folding them here costs less than that would.
+ *
+ * The join is outer because the book's own conversation hangs off no passage.
+ */
+export function readBookExport(
+  db: D1Database,
+  pdfId: string,
+  since: string | null,
+): ResultAsync<BookExport, ServiceError> {
+  return ResultAsync.fromPromise(findBookExport(db, pdfId, since), storageFailure).andThen(
+    (found) => (found ? ok(found) : err(notFound())),
+  );
+}
+
+async function findBookExport(
+  db: D1Database,
+  pdfId: string,
+  since: string | null,
+): Promise<BookExport | null> {
+  const d1Db = drizzle(db);
+  const book = await d1Db
+    .select({ id: pdfs.id, fileName: pdfs.fileName, pageCount: pdfs.pageCount })
+    .from(pdfs)
+    .where(eq(pdfs.id, pdfId))
+    .get();
+  if (!book) return null;
+
+  const rows = await d1Db
+    .select({
+      id: chatMessages.id,
+      role: chatMessages.role,
+      content: chatMessages.content,
+      createdAt: chatMessages.createdAt,
+      selectionId: chatMessages.selectionId,
+      selectedText: selections.selectedText,
+      pageNumber: selections.pageNumber,
+    })
+    .from(chatMessages)
+    .leftJoin(selections, eq(selections.id, chatMessages.selectionId))
+    .where(eq(chatMessages.pdfId, pdfId))
+    .all();
+
+  // The outer join makes the two passage columns nullable, which is exactly
+  // `ExportRow`; a drift between them is a type error here rather than a
+  // surprise in the note.
+  return {
+    pdfId: book.id,
+    fileName: book.fileName,
+    pageCount: book.pageCount,
+    questions: pairQuestions(rows, since),
   };
 }
