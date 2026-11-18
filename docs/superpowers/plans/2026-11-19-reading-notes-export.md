@@ -690,22 +690,31 @@ git commit -m "✨ feat: 本の質問と回答を書き出すエンドポイン�
 
 ### Task 3: `scripts/` を型チェックに入れる
 
-`scripts/` は今どの tsconfig にも入っていない（`tsconfig.node.json` の `include` は設定ファイル 3 つだけ）。先に通しておかないと、以降のタスクのコードを `vp check` が見ない。
+**実測で前提が外れた。** `vp check` は tsconfig の `references` を通らず自分でファイルを走査するので、`scripts/**` は tsconfig が無くても型チェックされている（当て馬の `const broken: number = "not a number"` は `typescript(TS2322)` で捕まった）。
+
+それでも tsconfig は要る。**届いていないのは Node の型**で、`process.env` や `node:fs` を書いた当て馬は 3 件のエラーになった。`scripts/tsconfig.json` が要るのはそのためで、「見られていない」からではない。
 
 **Files:**
 
 - Create: `scripts/tsconfig.json`
 - Modify: `tsconfig.json`
 
-- [ ] **Step 1: 今は見られていないことを確かめる**
+- [ ] **Step 1: Node の型が届いていないことを確かめる**
 
 ```bash
 mkdir -p scripts/notes
-printf 'export const broken: number = "not a number";\n' > scripts/notes/typecheck-probe.ts
+cat > scripts/notes/typecheck-probe.ts <<'EOF'
+import fs from "node:fs";
+import path from "node:path";
+
+export const home = process.env.HOME ?? "";
+export const joined = path.join(home, "x");
+export const exists = fs.existsSync(joined);
+EOF
 vp check
 ```
 
-Expected: 型エラーは**出ない**（`scripts/` がどのプロジェクトにも入っていないため）
+Expected: FAIL — 3 件。`process` と `node:` の import が解決できない
 
 - [ ] **Step 2: tsconfig を足す**
 
@@ -738,10 +747,10 @@ Expected: 型エラーは**出ない**（`scripts/` がどのプロジェクト�
 }
 ```
 
-- [ ] **Step 3: 見られるようになったことを確かめる**
+- [ ] **Step 3: Node の型が届いたことを確かめる**
 
 Run: `vp check`
-Expected: FAIL — `scripts/notes/typecheck-probe.ts` で `Type 'string' is not assignable to type 'number'`
+Expected: PASS（当て馬がそのまま通る）
 
 - [ ] **Step 4: 当て馬を消す**
 
