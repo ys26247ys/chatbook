@@ -8,15 +8,15 @@
 
 ## 決まっていること
 
-| 問い                             | 答え                                                               |
-| -------------------------------- | ------------------------------------------------------------------ |
-| 何を書き出すか                   | その本でした質問と回答を全部（選別はしない）                       |
-| 選別はどこで                     | Obsidian 側で手で。抜粋して本番ノートへ移す                        |
-| 2 回目以降                       | 新しい質問だけ追記。転記して削った分は復活しない                   |
-| どの端末で読んだぶんか           | 問わない（iPad・スマホ含む）。したがってデータ源はリモートの D1    |
-| 引き金                           | `pnpm run notes:sync` を手で叩く                                   |
-| 置き場                           | **新しい** Obsidian ボルト。既存のボルトには一切書かない           |
-| ノートの作り                     | 既存の Kindle Highlights プラグインのノートに寄せる                |
+| 問い                   | 答え                                                            |
+| ---------------------- | --------------------------------------------------------------- |
+| 何を書き出すか         | その本でした質問と回答を全部（選別はしない）                    |
+| 選別はどこで           | Obsidian 側で手で。抜粋して本番ノートへ移す                     |
+| 2 回目以降             | 新しい質問だけ追記。転記して削った分は復活しない                |
+| どの端末で読んだぶんか | 問わない（iPad・スマホ含む）。したがってデータ源はリモートの D1 |
+| 引き金                 | `pnpm run notes:sync` を手で叩く                                |
+| 置き場                 | **新しい** Obsidian ボルト。既存のボルトには一切書かない        |
+| ノートの作り           | 既存の Kindle Highlights プラグインのノートに寄せる             |
 
 ## 全体の形
 
@@ -64,9 +64,10 @@ book-chat:
   pdfId: 01KZ8XYZ...
   fileName: 達人プログラマー.pdf
   pageCount: 449
-  lastExportedAt: '2026-11-18T09:12:03.411Z'
+  lastExportedAt: "2026-11-18T09:12:03.411Z"
   questionsCount: 12
 ---
+
 # 達人プログラマー
 
 [リーダーで開く](https://chatbook.<サブドメイン>.workers.dev/books/01KZ8XYZ...)
@@ -133,11 +134,11 @@ bookExportSchema = { pdfId, fileName, pageCount, questions: [...] }
 
 ### 置き場
 
-| 何を                               | どこに                                                        |
-| ---------------------------------- | ------------------------------------------------------------- |
-| D1 を読む（`ResultAsync`）         | `src/server/services/pdfService.ts` の `readBookExport`       |
-| 質問と回答を対にする（純粋関数）   | `src/server/services/bookExport.ts`                           |
-| ルート                             | `src/server/routes/pdf.ts` の `GET /pdf/:pdfId/export`        |
+| 何を                             | どこに                                                  |
+| -------------------------------- | ------------------------------------------------------- |
+| D1 を読む（`ResultAsync`）       | `src/server/services/pdfService.ts` の `readBookExport` |
+| 質問と回答を対にする（純粋関数） | `src/server/services/bookExport.ts`                     |
+| ルート                           | `src/server/routes/pdf.ts` の `GET /pdf/:pdfId/export`  |
 
 `searchSelections`（service）と `bookSearch.ts`（純粋関数）と同じ分け方。無い本は
 `serviceFailureResponse` が `PDF_NOT_FOUND` の 404 にする。
@@ -157,12 +158,12 @@ null なので LEFT）で読み、純粋関数で対にしてから `askedAt > s
 
 ## スクリプト側
 
-| 何を                             | どこに                           |
-| -------------------------------- | -------------------------------- |
-| Markdown に組む（純粋関数）      | `scripts/notes/renderNote.ts`    |
-| frontmatter を読む・更新する     | `scripts/notes/frontmatter.ts`   |
-| ファイル名を整える               | `scripts/notes/vaultPath.ts`     |
-| ログイン・取得・読み書き         | `scripts/sync-reading-notes.ts`  |
+| 何を                         | どこに                          |
+| ---------------------------- | ------------------------------- |
+| Markdown に組む（純粋関数）  | `scripts/notes/renderNote.ts`   |
+| frontmatter を読む・更新する | `scripts/notes/frontmatter.ts`  |
+| ファイル名を整える           | `scripts/notes/vaultPath.ts`    |
+| ログイン・取得・読み書き     | `scripts/sync-reading-notes.ts` |
 
 `node scripts/sync-reading-notes.ts` を `pnpm run notes:sync` から叩く。TypeScript を
 Node に直接食わせる形で、`e2e/fixtures/generateTestBook.ts` と同じ。ここから来る前提が 3 つある。
@@ -209,13 +210,13 @@ extends、`include` は `./**/*.ts`）、ルートの `tsconfig.json` の `refer
 
 ## テスト
 
-| 何を                                               | どこで                                      |
-| -------------------------------------------------- | ------------------------------------------- |
-| 質問と回答の対にする規則                           | `src/server/services/bookExport.test.ts`    |
-| エンドポイント（404・`since`・他の本が混ざらない） | `test/worker/pdf.test.ts`                   |
-| Markdown の形                                      | `scripts/notes/renderNote.test.ts`          |
-| frontmatter の読み・更新・読めないとき             | `scripts/notes/frontmatter.test.ts`         |
-| ファイル名の整え方                                 | `scripts/notes/vaultPath.test.ts`           |
+| 何を                                               | どこで                                   |
+| -------------------------------------------------- | ---------------------------------------- |
+| 質問と回答の対にする規則                           | `src/server/services/bookExport.test.ts` |
+| エンドポイント（404・`since`・他の本が混ざらない） | `test/worker/pdf.test.ts`                |
+| Markdown の形                                      | `scripts/notes/renderNote.test.ts`       |
+| frontmatter の読み・更新・読めないとき             | `scripts/notes/frontmatter.test.ts`      |
+| ファイル名の整え方                                 | `scripts/notes/vaultPath.test.ts`        |
 
 `scripts/**` の `*.test.ts` は jsdom の vitest が拾う（`vite.config.ts` の `test` は `include` を
 書かず、`node_modules` / `dist` / `test/worker` / `e2e` / エージェントの worktree を `exclude` する

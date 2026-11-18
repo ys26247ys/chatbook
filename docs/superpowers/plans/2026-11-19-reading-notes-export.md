@@ -14,17 +14,17 @@
 
 ## ファイル構成
 
-| ファイル                                      | 役割                                                       |
-| --------------------------------------------- | ---------------------------------------------------------- |
-| `src/shared/schemas/export.ts`                | ワイヤの形（質問・本・`since`）                            |
-| `src/server/services/bookExport.ts`           | 質問と回答を対にする純粋関数                               |
-| `src/server/services/pdfService.ts`           | `readBookExport` を足す（D1、`ResultAsync`）               |
-| `src/server/routes/pdf.ts`                    | `GET /pdf/:pdfId/export` を足す                            |
-| `scripts/tsconfig.json`                       | `scripts/` を型チェックに入れる（今はどこにも入っていない）|
-| `scripts/notes/vaultPath.ts`                  | 本の名前からノートのファイル名を作る                       |
-| `scripts/notes/frontmatter.ts`                | ノートが自分について覚えていることの読み・書き             |
-| `scripts/notes/renderNote.ts`                 | ノートの本文と質問 1 件のブロックを組む                    |
-| `scripts/sync-reading-notes.ts`               | ログイン・取得・追記（I/O だけ。テストしない）             |
+| ファイル                            | 役割                                                        |
+| ----------------------------------- | ----------------------------------------------------------- |
+| `src/shared/schemas/export.ts`      | ワイヤの形（質問・本・`since`）                             |
+| `src/server/services/bookExport.ts` | 質問と回答を対にする純粋関数                                |
+| `src/server/services/pdfService.ts` | `readBookExport` を足す（D1、`ResultAsync`）                |
+| `src/server/routes/pdf.ts`          | `GET /pdf/:pdfId/export` を足す                             |
+| `scripts/tsconfig.json`             | `scripts/` を型チェックに入れる（今はどこにも入っていない） |
+| `scripts/notes/vaultPath.ts`        | 本の名前からノートのファイル名を作る                        |
+| `scripts/notes/frontmatter.ts`      | ノートが自分について覚えていることの読み・書き              |
+| `scripts/notes/renderNote.ts`       | ノートの本文と質問 1 件のブロックを組む                     |
+| `scripts/sync-reading-notes.ts`     | ログイン・取得・追記（I/O だけ。テストしない）              |
 
 **`scripts/notes/` は `src/` から何も import しない。** Node の type stripping は拡張子を解決せず、`src/shared/schemas/*.ts` どうしの import は拡張子なしで書かれているため。`scripts/` の中の相対 import には `.ts` を明示する。
 
@@ -35,6 +35,7 @@
 質問と回答は別の行なので、対にする規則を純粋関数に切り出す。ここが増分の正しさの土台になる。
 
 **Files:**
+
 - Create: `src/shared/schemas/export.ts`
 - Create: `src/server/services/bookExport.ts`
 - Test: `src/server/services/bookExport.test.ts`
@@ -125,8 +126,18 @@ describe("pairQuestions", () => {
   it("pairs a question with the answer that followed it", () => {
     const paired = pairQuestions(
       [
-        row({ id: "q1", role: "user", content: "直交性と疎結合はどう違う？", createdAt: "2026-11-01T00:00:00.000Z" }),
-        row({ id: "a1", role: "assistant", content: "疎結合は……", createdAt: "2026-11-01T00:00:05.000Z" }),
+        row({
+          id: "q1",
+          role: "user",
+          content: "直交性と疎結合はどう違う？",
+          createdAt: "2026-11-01T00:00:00.000Z",
+        }),
+        row({
+          id: "a1",
+          role: "assistant",
+          content: "疎結合は……",
+          createdAt: "2026-11-01T00:00:05.000Z",
+        }),
       ],
       null,
     );
@@ -179,9 +190,26 @@ describe("pairQuestions", () => {
     const paired = pairQuestions(
       [
         row({ id: "q1", role: "user", content: "一つ目", createdAt: "2026-11-01T00:00:00.000Z" }),
-        row({ id: "q2", role: "user", content: "二つ目", createdAt: "2026-11-01T00:00:01.000Z", selectionId: "sel-2" }),
-        row({ id: "a1", role: "assistant", content: "一つ目の答え", createdAt: "2026-11-01T00:00:02.000Z" }),
-        row({ id: "a2", role: "assistant", content: "二つ目の答え", createdAt: "2026-11-01T00:00:03.000Z", selectionId: "sel-2" }),
+        row({
+          id: "q2",
+          role: "user",
+          content: "二つ目",
+          createdAt: "2026-11-01T00:00:01.000Z",
+          selectionId: "sel-2",
+        }),
+        row({
+          id: "a1",
+          role: "assistant",
+          content: "一つ目の答え",
+          createdAt: "2026-11-01T00:00:02.000Z",
+        }),
+        row({
+          id: "a2",
+          role: "assistant",
+          content: "二つ目の答え",
+          createdAt: "2026-11-01T00:00:03.000Z",
+          selectionId: "sel-2",
+        }),
       ],
       null,
     );
@@ -194,7 +222,14 @@ describe("pairQuestions", () => {
 
   it("drops an answer whose question went out in an earlier run", () => {
     const paired = pairQuestions(
-      [row({ id: "a1", role: "assistant", content: "答えだけ", createdAt: "2026-11-01T00:00:05.000Z" })],
+      [
+        row({
+          id: "a1",
+          role: "assistant",
+          content: "答えだけ",
+          createdAt: "2026-11-01T00:00:05.000Z",
+        }),
+      ],
       null,
     );
 
@@ -217,7 +252,13 @@ describe("pairQuestions", () => {
     const paired = pairQuestions(
       [
         row({ id: "late", role: "user", content: "あと", createdAt: "2026-11-01T00:00:02.000Z" }),
-        row({ id: "early", role: "user", content: "さき", createdAt: "2026-11-01T00:00:01.000Z", selectionId: "sel-2" }),
+        row({
+          id: "early",
+          role: "user",
+          content: "さき",
+          createdAt: "2026-11-01T00:00:01.000Z",
+          selectionId: "sel-2",
+        }),
       ],
       null,
     );
@@ -335,6 +376,7 @@ git commit -m "✨ feat: 質問と回答を対にして書き出す形にする"
 ### Task 2: 書き出しのエンドポイント
 
 **Files:**
+
 - Modify: `src/server/services/pdfService.ts`（import に `chatMessages` を足し、`readBookExport` を追加）
 - Modify: `src/server/routes/pdf.ts`（`/pdf/:pdfId/text-search` の直後に追加）
 - Test: `test/worker/pdf.test.ts`
@@ -651,6 +693,7 @@ git commit -m "✨ feat: 本の質問と回答を書き出すエンドポイン�
 `scripts/` は今どの tsconfig にも入っていない（`tsconfig.node.json` の `include` は設定ファイル 3 つだけ）。先に通しておかないと、以降のタスクのコードを `vp check` が見ない。
 
 **Files:**
+
 - Create: `scripts/tsconfig.json`
 - Modify: `tsconfig.json`
 
@@ -721,6 +764,7 @@ git commit -m "🔧 chore: scripts/ を型チェックに入れる"
 ### Task 4: ノートのファイル名
 
 **Files:**
+
 - Create: `scripts/notes/vaultPath.ts`
 - Test: `scripts/notes/vaultPath.test.ts`
 
@@ -806,6 +850,7 @@ git commit -m "✨ feat: 本の名前からノートのファイル名を作る"
 ### Task 5: ノートが自分について覚えていること
 
 **Files:**
+
 - Create: `scripts/notes/frontmatter.ts`
 - Test: `scripts/notes/frontmatter.test.ts`
 
@@ -1003,6 +1048,7 @@ git commit -m "✨ feat: ノートがどこまで書き出したかを覚える"
 ### Task 6: Markdown を組む
 
 **Files:**
+
 - Create: `scripts/notes/renderNote.ts`
 - Test: `scripts/notes/renderNote.test.ts`
 
@@ -1167,14 +1213,19 @@ export function questionHeading(question: string): string {
     .replace(/[#[\]|]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return oneLine.length <= HEADING_MAX_CHARS
-    ? oneLine
-    : `${oneLine.slice(0, HEADING_MAX_CHARS)}…`;
+  return oneLine.length <= HEADING_MAX_CHARS ? oneLine : `${oneLine.slice(0, HEADING_MAX_CHARS)}…`;
 }
 
 /** What a new note starts with: the book, and the heading questions go under. */
 export function renderNoteBody(book: NoteBook, title: string, baseUrl: string): string {
-  return lines([`# ${title}`, "", `[リーダーで開く](${bookUrl(book, baseUrl)})`, "", "## 質問", ""]);
+  return lines([
+    `# ${title}`,
+    "",
+    `[リーダーで開く](${bookUrl(book, baseUrl)})`,
+    "",
+    "## 質問",
+    "",
+  ]);
 }
 
 /**
@@ -1244,6 +1295,7 @@ git commit -m "✨ feat: 質問を Obsidian のノートの形に組む"
 ここは I/O だけなので薄く保ち、単体テストは書かない（Task 8 で手で確かめる）。
 
 **Files:**
+
 - Create: `scripts/sync-reading-notes.ts`
 - Modify: `package.json`
 
@@ -1293,10 +1345,7 @@ const USER = process.env.CHATBOOK_USER ?? "demo";
 const KEYCHAIN_SERVICE = process.env.CHATBOOK_KEYCHAIN ?? "chatbook";
 const VAULT =
   process.env.CHATBOOK_VAULT ??
-  path.join(
-    os.homedir(),
-    "Library/Mobile Documents/iCloud~md~obsidian/Documents/reading/books",
-  );
+  path.join(os.homedir(), "Library/Mobile Documents/iCloud~md~obsidian/Documents/reading/books");
 
 interface BookRow {
   id: string;
@@ -1459,6 +1508,7 @@ git commit -m "✨ feat: 読書メモを Obsidian のボルトへ書き出す"
 ### Task 8: ボルトを作って手で確かめる
 
 **Files:**
+
 - Create: `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/reading/books/`（ディレクトリ）
 
 - [ ] **Step 1: ローカルの dev サーバーに対して走らせる**
@@ -1486,6 +1536,7 @@ cat ~/Library/Mobile\ Documents/iCloud~md~obsidian/Documents/reading/books/*.md 
 ```
 
 確かめること:
+
 - frontmatter に `pdfId` / `lastExportedAt` / `questionsCount` がある
 - `### <質問>` の下に `> 引用` と回答が並んでいる
 - `— p.N [開く](http://localhost:5173/books/...?page=N&selection=...)` が付いている
@@ -1514,6 +1565,7 @@ Obsidian の「フォルダをボルトとして開く」で
 `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/reading` を開く。
 
 確かめること:
+
 - ノートが見える
 - `[リーダーで開く]` が押せる
 - 本番ノートを 1 つ作り、`![[<本>#<質問の見出し>]]` で 1 問だけ埋め込めること
