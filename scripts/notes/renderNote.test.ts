@@ -70,6 +70,25 @@ describe("renderQuestion", () => {
     expect(block).not.toContain(">");
   });
 
+  it("pushes the answer's own headings below the question's", () => {
+    const block = renderQuestion(
+      BOOK,
+      question({ answer: "まとめです。\n\n## Sources\n[1] 「引用」" }),
+      BASE,
+    );
+
+    expect(block).toContain("\n##### Sources\n");
+    expect(block).not.toContain("\n## Sources\n");
+  });
+
+  it("leaves a heading inside a fence as the text it is", () => {
+    const answer = "図です。\n\n```html\n<h1>題</h1>\n# これは見出しではない\n```";
+
+    expect(renderQuestion(BOOK, question({ answer }), BASE)).toContain(
+      "\n# これは見出しではない\n",
+    );
+  });
+
   it("says so rather than going quiet when the answer was never saved", () => {
     expect(renderQuestion(BOOK, question({ answer: null }), BASE)).toContain(
       "（回答は保存されていません）",

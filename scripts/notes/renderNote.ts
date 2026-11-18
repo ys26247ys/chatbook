@@ -70,7 +70,7 @@ export function renderQuestion(book: NoteBook, question: NoteQuestion, baseUrl: 
     block.push(`> ${question.quote.replace(/\s+/g, " ").trim()}`, "");
   }
   block.push(
-    question.answer ?? ANSWER_MISSING,
+    question.answer === null ? ANSWER_MISSING : nestHeadings(question.answer),
     "",
     `${placeLabel(question)} [開く](${passageUrl(book, question, baseUrl)}) ^q-${blockId(question.questionId)}`,
     "",
@@ -78,6 +78,43 @@ export function renderQuestion(book: NoteBook, question: NoteQuestion, baseUrl: 
     "",
   );
   return lines(block);
+}
+
+/** The start of a fenced block, which heading-looking lines inside are not. */
+const FENCE = /^\s*(`{3,}|~{3,})/;
+
+/**
+ * Pushes the answer's own headings below the question's.
+ *
+ * Every answer writes `## Sources`, and a model may write any heading it
+ * likes. Left alone they sit above the question in the note's outline: the
+ * question's `###` section ends at the first of them, so embedding that
+ * section (`![[note#question]]`) would drop the rest of the answer — the
+ * sources included — and the outline would fill with every answer's headings.
+ *
+ * A heading inside a fenced block is text rather than a heading, and the
+ * answers carry mermaid and html fences, so fences are counted through.
+ */
+function nestHeadings(answer: string): string {
+  let fence: string | null = null;
+  return answer
+    .split("\n")
+    .map((line) => {
+      const fenced = FENCE.exec(line);
+      if (fenced) {
+        const marker = fenced[1][0];
+        if (fence === null) fence = marker;
+        else if (marker === fence) fence = null;
+        return line;
+      }
+      if (fence !== null) return line;
+      const heading = /^(#{1,6})\s/.exec(line);
+      if (!heading) return line;
+      // One level below the question's `###`, and never past `######`.
+      const depth = Math.min(6, heading[1].length + 3);
+      return `${"#".repeat(depth)}${line.slice(heading[1].length)}`;
+    })
+    .join("\n");
 }
 
 function lines(parts: string[]): string {
